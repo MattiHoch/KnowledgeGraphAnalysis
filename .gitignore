@@ -1,0 +1,4 @@
+*_copy.*
+*.zip
+.ipynb_checkpoints
+__pycache__
