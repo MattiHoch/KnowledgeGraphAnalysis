@@ -528,7 +528,7 @@ class Model:
                     diff = -prev_perturbation
                 else:
                     continue
-                 
+
             # get all values that are different to the previous step
             non_zero_positions = np.where(diff != 0)[0]
         

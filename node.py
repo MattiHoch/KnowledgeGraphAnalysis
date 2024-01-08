@@ -165,7 +165,7 @@ class Node:
     
     def numexpr_index(self, probabilistic = False):
         # return self.string_index + "_" + ("true" if probabilistic else "false")
-        return "(" + "node" + str(self.index) + ".active(probabilistic=" + ("True" if probabilistic else "False") + "))"
+        return "(" + "node" + str(self.index) + ".active(probabilistic=" + ("True" if probabilistic else "False") + ", source=source_node))"
 
     @property
     def fullname(self):
@@ -468,6 +468,7 @@ class Node:
             self.boolean_expr = numexpr_string
             if numexpr_string:
                 node_mapping = map_numexpr_nodes(numexpr_string)
+                node_mapping["source_node"] = self
                 for node in node_mapping.values():
                     node.boolean_targets.append(self)
                 # converting the string into a lambda function
@@ -495,7 +496,7 @@ class Node:
             self.perturbation = self.model.zero_template.copy()  
 
         self.perturbation[:] = perturbation
-            
+        
     def perturb_at(self, perturbation, pos = (0,0)):
         
         if not isinstance(self.perturbation, np.ndarray):
@@ -529,9 +530,7 @@ class Node:
             new_activity = np.minimum(new_activity, self.storage)
         else:
             new_activity = self.rule().astype(int)
-        
-        self.perturbation = 0
-        
+
         return (previous_activity, new_activity)
 
     # this is relevant only for nodes that have delay in propagating their signal
@@ -573,7 +572,7 @@ class Node:
     # Cache will be reset when incoming nodes change their state (happens in the Model.activtiy_step() function)
     @functools.lru_cache(maxsize=None)
     def active(self, source = None, probabilistic = False):
-        
+
         if self.delay:
             if self.delay > len(self.model.store_activities):
                 return self.model.false_template                    
@@ -588,13 +587,14 @@ class Node:
         else:
             activity = activity.astype(bool)
         
-        if self.refill and (not source or source not in self.refill_sources):        
+        if self.refill and (not source or source not in self.refill_sources):  
             activity = (activity | self.refill()).astype(bool)
         
                     
         if isinstance(perturbation, np.ndarray):
             activity = np.where(perturbation == 1, True, np.where(perturbation == -1, False, activity))
-            
+
+        
         return activity
 
     # simply convert a node's activity from a given acitvity and perturbation array to a hex color
