@@ -106,6 +106,10 @@ class Model:
     def phenotypes(self):
         return [node for node in self.get_nodes_by_type("phenotype") if not node.hypothetical]
     
+    @property
+    def compartments(self):
+        return list(set([node.compartment for node in self.nodes]))
+    
     def update_signaling(self):
         for node in self.nodes:
             node.boolean_targets = []

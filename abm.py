@@ -37,10 +37,10 @@ class ABM():
             userImage = Image.open(image)
             userImage = userImage.resize(image_size) ### EDITED LINE
         
-        lower = 0.3
+        lower = 0.4
         upper = 1
         sigma = 0.2
-        mu = 0.6
+        mu = 0.7
         
         np.random.seed(self.seed)
         mus = scipy.stats.truncnorm.rvs((lower-mu)/sigma,(upper-mu)/sigma,loc=mu,scale=sigma,size=quadrant_size**2)
@@ -74,8 +74,8 @@ class ABM():
 
         self.agents = self.agents.reshape(self.agent_model.grid_size)
             
-        self.outside_nodes_pairs = {node:self.outside_model.nodes[_hash] for _hash,node in self.agent_model.nodes.items() if node.compartment == "" and _hash in self.outside_model.nodes.keys()}
-        self.outside_nodes = [node for node in self.agent_model.nodes if node.compartment == ""]
+        self.blood_node_pairs = {node:self.outside_model.nodes[_hash] for _hash,node in self.agent_model.nodes.items() if node.compartment == "" and _hash in self.outside_model.nodes.keys()}
+        self.liver_blood_nodes = [node for node in self.agent_model.nodes if node.compartment == ""]
         
         self.tag = self.agent_model.get_node_from_name("TAG")
         self.vldl = self.agent_model.get_node_from_name("VLDL")
@@ -120,11 +120,10 @@ class ABM():
             
         self.food.perturb(self.food_prob[current_step%len(self.food_prob)]) 
         np.random.seed(self.seed + current_step)
-        random = np.random.random()
+        random_numb = np.random.random()
         for perturbed_node,perturbation_score in conditions.items():            
             for node in perturbed_node.extended_subunit_list():
-                node.perturb(0 if random < perturbation_score else -1)
-                print(node.name, 0 if random < perturbation_score else -1)
+                node.perturb(0 if random_numb < perturbation_score else -1)
             
         self.outside_model.activity_step()
         
@@ -139,17 +138,15 @@ class ABM():
             
         nutrient_array = random_array <= self.agents
                     
-        for liver_node in self.outside_nodes:
-            if liver_node in self.outside_nodes_pairs:
-                intestine_node_activity = self.outside_nodes_pairs[liver_node].active()
+        for liver_node in self.liver_blood_nodes:
+            if liver_node in self.blood_node_pairs:
+                intestine_node_activity = self.blood_node_pairs[liver_node].active()
                 if liver_node.simple_molecule:
                     liver_node.perturb(np.where(intestine_node_activity, np.where(nutrient_array, 1, -1), -1))
                 else:
                     liver_node.perturb(np.where(intestine_node_activity, pos_perturbed_array, -1))
             else:
-                liver_node.perturb(-1)
-            
-                
+                liver_node.perturb(-1)         
             
         kernel = np.ones((3, 3), dtype=np.int32)  # 3x3 kernel
         
@@ -158,12 +155,20 @@ class ABM():
             aggregated_array = (convolve(self.agent_model.current_activities[aggregate_from.index].reshape(self.agent_model.grid), kernel, mode='constant') / 9 / aggregate_from.storage).reshape(self.agent_model.grid_size)
             np.random.seed(self.seed + len(self.agent_model.store_activities))
             perturbation_array = (np.random.rand(self.agent_model.grid_size) < aggregated_array).astype(int)
-            print(np.count_nonzero(perturbation_array))
             aggregate_to.perturb(perturbation_array)
 
         for node in self.perturbed_nodes["agent"]:
             node.perturb(-1)  
 
+                    
+        random.seed(self.seed + current_step)                    
+        for liver_node, outside_node in self.blood_node_pairs.items():
+            if outside_node.boolean_expr == "":
+                if random.uniform(0, 1) <= np.mean(liver_node.active().flatten()):
+                    print(outside_node.name)
+                    outside_node.perturb(1)
+            
+            
         end1 = time.time()  - start
         start = time.time()
         self.agent_model.activity_step()
@@ -171,7 +176,7 @@ class ABM():
         
         return((end1, end2))   
     
-    def show_agents(self, file, node, alpha = 0, **kwargs):
+    def show_agents(self, file, node, alpha = 0.5, **kwargs):
         
         def extract_numbers(s):
             return list(map(int, re.findall(r'\d+', s)))
@@ -193,6 +198,8 @@ class ABM():
                 refill_node_activities, refill_node_perturbations = self.agent_model.restore_matrix_at_node(refill_node)
                 node_activities = np.where((refill_node_activities > 0) | (refill_node_perturbations == 1), 1, node_activities)                
         node_activities = np.where(node_perturbations == 1, 1, node_activities)
+        
+        print(node_activities.max())
                 
         # Start with a white hex color array
         node_colors = np.full(node_activities.shape, '#ffffff{:02x}'.format(int(255*alpha)))
@@ -200,9 +207,9 @@ class ABM():
         non_zero_mask = node_activities != 0
         # Extract non-zero values
         non_zero_values = node_activities[non_zero_mask]
-        
+
         none_zero_colors = array_to_hex(non_zero_values, a = alpha)        
-              
+                               
         # Assign these hex values back to the original array using the mask
         node_colors[non_zero_mask] = none_zero_colors
         
@@ -285,8 +292,11 @@ class ABM():
             steps = self.steps
             
         for node in nodes:
+            
+            activities, _ = self.agent_model.restore_matrix_at_node(node)
+            
             x = sum([[step]*(self.size**2) for step in range(steps)], []) 
-            y = sum([list((node.activities[step]/(node.storage if normalize and node.storage else 1)).flatten()) for step in range(steps)], [])
+            y = sum([list((activities[step]/(node.storage if normalize and node.storage else 1)).flatten()) for step in range(steps)], [])
             
             sns.lineplot(x=x, y=y, errorbar = ("pi", pi), label=node.fullname_printable)
         

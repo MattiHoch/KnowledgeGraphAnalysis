@@ -47,7 +47,7 @@ class Node:
         _hash = hashlib.sha256(str((
             trim_node_name(name) if len(subunits) == 0 else tuple(sorted(subunits)),
             nodetype.lower(), 
-            compartment.lower(), 
+            compartment, 
             states, 
             hypothetical
         )).encode()).hexdigest()
@@ -438,6 +438,7 @@ class Node:
             if len(refills) > 0:
                 expr_string = " | ".join(refills)
                 node_mapping = map_numexpr_nodes(expr_string)
+                node_mapping["source_node"] = self
                 self.refill = eval("lambda: " + expr_string, node_mapping)
             else:
                 self.refill = None
@@ -451,6 +452,7 @@ class Node:
                 if len(consumptions) > 0:
                     expr_string = "sum([" + " , ".join([str(consumption) + " * " + edge_lambda for edge_lambda, consumption in consumptions]) + "])"
                     node_mapping = map_numexpr_nodes(expr_string)
+                    node_mapping["source_node"] = self
                     self.consumption = eval("lambda: " + expr_string, node_mapping)
                 else:
                     self.consumption = None
@@ -604,10 +606,11 @@ class Node:
         alpha =  int(255*alpha)
         activity = activities[self.index]
         perturbation = perturbations[self.index]
+
         if perturbation == -1:
             return (40, 40, 40, 180)
         elif perturbation == 1:
-            (255, 0, 0, alpha)
+            return (255, 0, 0, alpha)
         activity = activity / (self.storage if self.storage else 1)
         if len(self.refill_sources) > 0 and not activity:
             if any((activities[node.index] or perturbations[node.index] == 1) and perturbations[node.index] != -1 for node in self.refill_sources):

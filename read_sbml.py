@@ -93,7 +93,7 @@ def read_species_alias(xmldoc):
     return species_alias_data
 
 def read_compartments(xmldoc):
-    return {c.attributes['id'].value: (c.attributes['name'].value.lower().replace(" ", "") if c.hasAttribute("name") else "") for c in xmldoc.getElementsByTagName('compartment') }
+    return {c.attributes['id'].value: (c.attributes['name'].value.lower().replace("_space_", " ").replace("_minus_", "-") if c.hasAttribute("name") else "") for c in xmldoc.getElementsByTagName('compartment') }
 
 def read_size(xmldoc):
     sizes = xmldoc.getElementsByTagName('celldesigner:modelDisplay')[0]
@@ -266,7 +266,7 @@ def create_model(folder, files = [], grid = (1,1), compartment_specific = False,
                 for source_combination in sources:
                     for target_combination in targets:
                         for sourcelink_combination in sourcelinks:
-                            for targetlink_combination in targetlinks:                            
+                            for targetlink_combination in targetlinks:
                                 if same_nodes and tuple(sorted([node.name for node in source_combination])) != tuple(sorted([node.name for node in target_combination])):
                                     continue
                                 edge = Edge(
