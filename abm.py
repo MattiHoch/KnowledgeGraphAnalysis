@@ -160,7 +160,17 @@ class ABM():
         for node in self.perturbed_nodes["agent"]:
             node.perturb(-1)  
 
-                    
+        for liver_node in self.liver_blood_nodes:
+            if liver_node in self.blood_node_pairs:
+                blood_node = self.blood_node_pairs[liver_node]
+                liver_node_activities = liver_node.active()
+                liver_node_activities = liver_node_activities.astype(int)
+                mean_activity = np.mean(liver_node_activities)
+                if mean_activity < 0.5:
+                    blood_node.perturb(-1)
+                elif mean_activity >= 0.5:
+                    blood_node.perturb(1)
+                                
         random.seed(self.seed + current_step)                    
         for liver_node, outside_node in self.blood_node_pairs.items():
             if outside_node.boolean_expr == "":
