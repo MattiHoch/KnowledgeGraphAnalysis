@@ -92,6 +92,7 @@ class ABM():
     def run_abm(self, steps = 100, perturbednodes = [], food_prob = 3*[1] + 5*[-1], conditions = {}, socketio = None, progress = True, aggregations = []):
         
         self.steps = steps
+
         self.agent_model.set_initial_state()
         self.outside_model.set_initial_state()
 
@@ -100,8 +101,8 @@ class ABM():
         self.perturbed_nodes = {
             "agent": self.agent_model.get_nodes_from_names(perturbednodes),
             "outside": self.outside_model.get_nodes_from_names(perturbednodes)
-        }
-        
+        }        
+
         measured_times = []
         for step in range(steps): 
             measured_times.append(self.step(step, steps, conditions = conditions, aggregations = aggregations))
@@ -137,17 +138,19 @@ class ABM():
 
             
         nutrient_array = random_array <= self.agents
-                    
+
         for liver_node in self.liver_blood_nodes:
             if liver_node in self.blood_node_pairs:
-                intestine_node_activity = self.blood_node_pairs[liver_node].active()
-                if liver_node.simple_molecule:
-                    liver_node.perturb(np.where(intestine_node_activity, np.where(nutrient_array, 1, -1), -1))
-                else:
-                    liver_node.perturb(np.where(intestine_node_activity, pos_perturbed_array, -1))
-            else:
+                outside_node = self.blood_node_pairs[liver_node]
+                if outside_node.boolean_expr != "":
+                    intestine_node_activity = outside_node.active()
+                    if liver_node.simple_molecule:
+                        liver_node.perturb(np.where(intestine_node_activity, np.where(nutrient_array, 1, -1), -1))
+                    else:
+                        liver_node.perturb(np.where(intestine_node_activity, pos_perturbed_array, -1))
+            elif liver_node.boolean_expr == "":
                 liver_node.perturb(-1)         
-            
+
         kernel = np.ones((3, 3), dtype=np.int32)  # 3x3 kernel
         
         for aggregate_from, aggregate_to in aggregations:
@@ -156,33 +159,26 @@ class ABM():
             np.random.seed(self.seed + len(self.agent_model.store_activities))
             perturbation_array = (np.random.rand(self.agent_model.grid_size) < aggregated_array).astype(int)
             aggregate_to.perturb(perturbation_array)
-
         for node in self.perturbed_nodes["agent"]:
             node.perturb(-1)  
 
-        for liver_node in self.liver_blood_nodes:
-            if liver_node in self.blood_node_pairs:
-                blood_node = self.blood_node_pairs[liver_node]
-                liver_node_activities = liver_node.active()
-                liver_node_activities = liver_node_activities.astype(int)
-                mean_activity = np.mean(liver_node_activities)
-                if mean_activity < 0.5:
-                    blood_node.perturb(-1)
-                elif mean_activity >= 0.5:
-                    blood_node.perturb(1)
-                                
-        random.seed(self.seed + current_step)                    
-        for liver_node, outside_node in self.blood_node_pairs.items():
-            if outside_node.boolean_expr == "":
-                if random.uniform(0, 1) <= np.mean(liver_node.active().flatten()):
-                    print(outside_node.name)
-                    outside_node.perturb(1)
             
             
         end1 = time.time()  - start
         start = time.time()
         self.agent_model.activity_step()
         end2 = time.time() - start
+        
+        random.seed(self.seed + current_step)                    
+        for liver_node, outside_node in self.blood_node_pairs.items():
+            if outside_node.boolean_expr == "":
+                mean_activity = np.mean(liver_node.active())
+                if random.uniform(0, 1) <= mean_activity:
+                    # print(outside_node.name, mean_activity)
+                    outside_node.perturb(1)
+                else:
+                    outside_node.perturb(-1)
+                    
         
         return((end1, end2))   
     

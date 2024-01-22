@@ -66,6 +66,7 @@ class Model:
         self.files = {}
         self.submap_images = {}
         self.nodes_with_changes = set()
+        self.step = 0
                         
         if not seed:
             seed = random.randint(0, 10000)
@@ -457,8 +458,9 @@ class Model:
             node.perturbation = 0
             node.active.cache_clear()
             
+        self.step = 0
         # initialize the "zeroth" step in which all nodes are updated to get their initial state
-        self.activity_step(first_step = True)
+        self.activity_step(first_step = True)        
         
     def activity_step(self, first_step = False):
 
@@ -560,6 +562,7 @@ class Model:
         
         # assign current step as the previous one for the next step 
         self.previous_activities[:, :] = self.current_activities
+        self.step += 1
 
     # restore the list of coo sparse matrices for activities and perturbations of a specific node into a 2D (step * position) np array 
     def restore_matrix_at_node(self,node, control = False):

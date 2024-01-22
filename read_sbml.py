@@ -22,8 +22,8 @@ except:
         from .model import *
         from .basic_functions import *
     
-def get_tag(tag_list):
-    return (float(tag_list[0].split("=")[1].strip()) if "=" in tag_list[0] else 10) if tag_list else 0
+def get_tag(tag_list, na_value = 0, defaultvalue = 10):
+    return (float(tag_list[0].split("=")[1].strip()) if "=" in tag_list[0] else defaultvalue) if tag_list else na_value
     
 def read_species(xmldoc, id_as_name = False):
     """Reads all Species information from subunit and "normal" species list."""
@@ -49,12 +49,14 @@ def read_species(xmldoc, id_as_name = False):
             
         storage_tags = [tag for tag in tags if tag.startswith("storage")]  
         delay_tags = [tag for tag in tags if tag.startswith("delay")]  
+        decay_tags = [tag for tag in tags if tag.startswith("decay")]  
         species[s.attributes['id'].value] = {
             "compartment": s.attributes['compartment'].value if s.hasAttribute('compartment') else "",
             "name": s.attributes['id'].value if id_as_name else s.attributes['name'].value.strip().replace("_space_", " "),
             "type": s.getElementsByTagName('celldesigner:class')[0].firstChild.toxml(),
             "initial": int(float(s.attributes['initialAmount'].value)) if "initialAmount" in s.attributes else 0,
             "delay": get_tag(delay_tags),
+            "decay": get_tag(decay_tags, na_value = 1, defaultvalue = 1),
             "storage": get_tag(storage_tags),
             "family": True if complex_tag and complex_tag[0].attributes['structuralState'].value.lower() == "family" else False,
             "complex": s.getElementsByTagName('celldesigner:complexSpecies')[0].firstChild.toxml() if s.getElementsByTagName('celldesigner:complexSpecies') else "",
@@ -221,6 +223,7 @@ def create_model(folder, files = [], grid = (1,1), compartment_specific = False,
                                                         initial = sbml_species[species[1]["complex"]]["initial"] if species[1]["complex"] else species[1]["initial"],
                                                         storage = species[1]["storage"], 
                                                         delay = species[1]["delay"], 
+                                                        decay = species[1]["decay"], 
                                                         hypothetical =  species[1]["hypothetical"],
                                                         origins = [file],
                                                         map_ids = species_alias_data[species[0]]["map_ids"] if species[0] in species_alias_data else set(),

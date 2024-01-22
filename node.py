@@ -40,7 +40,7 @@ class Entity:
         self.origins = set(node.origins)
 
 class Node:
-    def __new__(cls, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0,  origins = [], map_ids = [], positions = {}, submap = False, references = []):
+    def __new__(cls, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, origins = [], map_ids = [], positions = {}, submap = False, references = []):
         if nodetype.lower() == "mirna":
             nodetype = "RNA"
  
@@ -66,6 +66,8 @@ class Node:
                 node.storage = storage
             if delay > node.delay:
                 node.delay = delay
+            if decay != node.decay and decay != 1:
+                node.decay = decay
             if submap:                
                 node.submap = submap
             for file, pos in positions.items():
@@ -91,7 +93,7 @@ class Node:
         self.__dict__.update(state)
         self.update_rule()  
         
-    def __init__(self, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, origins = [], map_ids = [], positions = {}, submap = False, references = []):           
+    def __init__(self, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, origins = [], map_ids = [], positions = {}, submap = False, references = []):           
         if hasattr(self, 'name'):
             return
         
@@ -121,6 +123,7 @@ class Node:
         self.initial_activity = 0
         self.storage = storage
         self.delay = int(delay)
+        self.decay = int(decay)
         self.rule = None
         self.consumption = None
         self.refill = None
@@ -486,6 +489,7 @@ class Node:
 
         # track nodes with changes in their activities
         # a comparison of whether there has been an actual change in self.perturbation is currently omitted as it is probably more extensive
+        self.active.cache_clear()
         self.model.nodes_with_changes.add(self)  
         
         # self.perturbation is 0 by default (meaning no peturbation in all positions) to save storage
@@ -500,6 +504,9 @@ class Node:
         self.perturbation[:] = perturbation
         
     def perturb_at(self, perturbation, pos = (0,0)):
+        
+        self.active.cache_clear()
+        self.model.nodes_with_changes.add(self)  
         
         if not isinstance(self.perturbation, np.ndarray):
             self.perturbation = self.model.zero_template.copy()  
@@ -523,9 +530,10 @@ class Node:
     def update_activity(self):
         previous_activity = self.model.previous_activities[self.index]
         if self.storage:
-            # times 2 so that 0 becomes -1 and 1 stays 1
-            delta_activity = 2*self.rule() - 1
-            new_activity = previous_activity + delta_activity 
+            # # times 2 so that 0 becomes -1 and 1 stays 1
+            delta_activity = 1*self.rule()
+            delta_activity -= (~delta_activity.astype(bool))*self.decay
+            new_activity = previous_activity + delta_activity
             if self.consumption:
                 new_activity -= self.consumption()#.reshape(self.model.grid_size)
             new_activity = np.maximum(new_activity, 0)
@@ -584,7 +592,7 @@ class Node:
             perturbation = self.perturbation
 
         if probabilistic:
-            np.random.seed((self.model.seed)*1000 + self.index)
+            np.random.seed(self.model.seed + self.model.step + self.index)
             activity = np.random.rand(self.model.grid_size) <= (activity / (self.storage if self.storage else 1))
         else:
             activity = activity.astype(bool)
