@@ -92,8 +92,8 @@ class Modification:
     def fits_origins(self, origin_filter):
         return True if not origin_filter or any([origin in origin_filter for origin in self.origins]) else False
 
-    def numexpr_string(self):        
-        return "~(" + " & ".join([modifier.numexpr_index() for modifier in self.modifiers]) + ")" if self.modification_int == -1 else ""
+    def numexpr_string(self, probabilistic = False):        
+        return "~(" + " & ".join([modifier.numexpr_index(probabilistic = probabilistic) for modifier in self.modifiers]) + ")" if self.modification_int == -1 else ""
         
     def boolean_string(self):        
         return "NOT (" + " AND ".join([modifier.fullname for modifier in self.modifiers]) + ")" if self.modification_int == -1 else ""
@@ -273,7 +273,7 @@ class Edge:
         
     def as_numexpr_string(self):
         catalyses_modifiers = [modification.modifiers for modification in self.modifications if modification.is_catalysis]
-        modifier_strings = [modification.numexpr_string() for modification in self.modifications]
+        modifier_strings = [modification.numexpr_string(probabilistic = self.probabilistic) for modification in self.modifications]
         modifier_strings = [modifier_string for modifier_string in modifier_strings if modifier_string != ""]
         evaluated_sources = self.basesources + [node for node in self.sourcelinks if not node.simple_molecule or not node.hypothetical]
         if self.type == "COMPLEX_FORMATION":
@@ -284,20 +284,20 @@ class Edge:
                 (" & " if len(modifier_strings) > 0 else ""),
                 " & ".join(sorted(modifier_strings)),
                 (" & (" if len(catalyses_modifiers) > 0 else ""),
-                " | ".join([" & ".join(sorted([node.numexpr_index() for node in modifiers])) for modifiers in sorted(catalyses_modifiers)]),
+                " | ".join([" & ".join(sorted([node.numexpr_index(probabilistic = self.probabilistic) for node in modifiers])) for modifiers in sorted(catalyses_modifiers)]),
                 ")" if len(catalyses_modifiers) > 0 else "",
             ]) + ")")
         
-    def as_boolean_expression(self):
-        catalyses_modifiers = [modification.modifiers for modification in self.modifications if modification.is_catalysis]
-        modifier_lambdas = [modification.boolean for modification in self.modifications]
-        evaluated_sources = self.basesources + [node for node in self.sourcelinks if not node.simple_molecule or not node.hypothetical]
-        if self.type == "COMPLEX_FORMATION":
-            return (self.edge_type_int, None)
-        else:
-            return (self.edge_type_int, lambda step,source: np.logical_and.reduce([node.active(step,source=source,probabilistic = self.probabilistic) for node in evaluated_sources] + 
-                [modifier_lambda(step,source) for modifier_lambda in modifier_lambdas] + 
-                ([np.logical_or.reduce([np.logical_and.reduce([node.active(step,source=source) for node in modifiers]) for modifiers in catalyses_modifiers])] if len(catalyses_modifiers) > 0 else [])))
+#     def as_boolean_expression(self):
+#         catalyses_modifiers = [modification.modifiers for modification in self.modifications if modification.is_catalysis]
+#         modifier_lambdas = [modification.boolean for modification in self.modifications]
+#         evaluated_sources = self.basesources + [node for node in self.sourcelinks if not node.simple_molecule or not node.hypothetical]
+#         if self.type == "COMPLEX_FORMATION":
+#             return (self.edge_type_int, None)
+#         else:
+#             return (self.edge_type_int, lambda step,source: np.logical_and.reduce([node.active(step,source=source,probabilistic = self.probabilistic) for node in evaluated_sources] + 
+#                 [modifier_lambda(step,source) for modifier_lambda in modifier_lambdas] + 
+#                 ([np.logical_or.reduce([np.logical_and.reduce([node.active(step,source=source) for node in modifiers]) for modifiers in catalyses_modifiers])] if len(catalyses_modifiers) > 0 else [])))
     
     def as_boolean_string(self):
         catalyses_modifiers = [modification.modifiers for modification in self.modifications if modification.is_catalysis]

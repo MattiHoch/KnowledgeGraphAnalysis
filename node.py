@@ -40,7 +40,7 @@ class Entity:
         self.origins = set(node.origins)
 
 class Node:
-    def __new__(cls, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, origins = [], map_ids = [], positions = {}, submap = False, references = []):
+    def __new__(cls, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, lower_limit = None, upper_limit = None, origins = [], map_ids = [], positions = {}, submap = False, references = []):
         if nodetype.lower() == "mirna":
             nodetype = "RNA"
  
@@ -64,6 +64,12 @@ class Node:
             node.references.update(references)
             if storage > node.storage:
                 node.storage = storage
+            if upper_limit:
+                if not node._upper_limit or (node._upper_limit and upper_limit > node._upper_limit):
+                    node._upper_limit = upper_limit
+            if lower_limit:
+                if not node._lower_limit or (node._lower_limit and lower_limit > node._lower_limit):
+                    node._lower_limit = lower_limit
             if delay > node.delay:
                 node.delay = delay
             if decay != node.decay and decay != 1:
@@ -93,7 +99,8 @@ class Node:
         self.__dict__.update(state)
         self.update_rule()  
         
-    def __init__(self, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, origins = [], map_ids = [], positions = {}, submap = False, references = []):           
+    def __init__(self, model, name, nodetype = "Protein", states: tuple = (), subunits = (), family = False, compartment = "", initial = False, hypothetical = False, storage = 0, delay = 0, decay = 1, lower_limit = None, upper_limit = None, origins = [], map_ids = [], positions = {}, submap = False, references = []):   
+        
         if hasattr(self, 'name'):
             return
         
@@ -122,6 +129,8 @@ class Node:
 
         self.initial_activity = 0
         self.storage = storage
+        self._lower_limit = lower_limit
+        self._upper_limit = upper_limit
         self.delay = int(delay)
         self.decay = int(decay)
         self.rule = None
@@ -161,7 +170,13 @@ class Node:
         else:
             return self.type
     
-    
+    @property
+    def lower_limit(self): 
+        return self._lower_limit if self._lower_limit else 0
+    @property
+    def upper_limit(self): 
+        return self._upper_limit if self._upper_limit else self.storage
+        
     @property
     def string_index(self):
         return "m" + str(self.index)
@@ -536,8 +551,8 @@ class Node:
             new_activity = previous_activity + delta_activity
             if self.consumption:
                 new_activity -= self.consumption()#.reshape(self.model.grid_size)
-            new_activity = np.maximum(new_activity, 0)
-            new_activity = np.minimum(new_activity, self.storage)
+            new_activity = np.maximum(new_activity, self.lower_limit)
+            new_activity = np.minimum(new_activity, self.upper_limit)
         else:
             new_activity = self.rule().astype(int)
 
@@ -591,9 +606,9 @@ class Node:
             activity = self.model.previous_activities[self.index]
             perturbation = self.perturbation
 
-        if probabilistic:
+        if probabilistic and self.storage:
             np.random.seed(self.model.seed + self.model.step + self.index)
-            activity = np.random.rand(self.model.grid_size) <= (activity / (self.storage if self.storage else 1))
+            activity = np.random.rand(self.model.grid_size) <= (activity / (self.storage))
         else:
             activity = activity.astype(bool)
         

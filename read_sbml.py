@@ -39,6 +39,8 @@ def read_species(xmldoc, id_as_name = False):
             tags = sum([list(tag.lower().replace("tags:", "").split(",")) for tag in tags if tag.lower().startswith("tags:")], [])
         else:
             tags = []
+            
+        tags = [tag.strip() for tag in tags]
         
         notes = s.getElementsByTagName('celldesigner:notes')
         if notes:
@@ -50,6 +52,8 @@ def read_species(xmldoc, id_as_name = False):
         storage_tags = [tag for tag in tags if tag.startswith("storage")]  
         delay_tags = [tag for tag in tags if tag.startswith("delay")]  
         decay_tags = [tag for tag in tags if tag.startswith("decay")]  
+        lower_limit_tags = [tag for tag in tags if tag.startswith("lower_limit")]  
+        upper_limit_tags = [tag for tag in tags if tag.startswith("upper_limit")] 
         species[s.attributes['id'].value] = {
             "compartment": s.attributes['compartment'].value if s.hasAttribute('compartment') else "",
             "name": s.attributes['id'].value if id_as_name else s.attributes['name'].value.strip().replace("_space_", " "),
@@ -58,6 +62,8 @@ def read_species(xmldoc, id_as_name = False):
             "delay": get_tag(delay_tags),
             "decay": get_tag(decay_tags, na_value = 1, defaultvalue = 1),
             "storage": get_tag(storage_tags),
+            "upper_limit": get_tag(upper_limit_tags, na_value = None, defaultvalue = None),
+            "lower_limit": get_tag(lower_limit_tags, na_value = None, defaultvalue = None),
             "family": True if complex_tag and complex_tag[0].attributes['structuralState'].value.lower() == "family" else False,
             "complex": s.getElementsByTagName('celldesigner:complexSpecies')[0].firstChild.toxml() if s.getElementsByTagName('celldesigner:complexSpecies') else "",
             "states": tuple([modifier.attributes['state'].value.strip() for modifier in s.getElementsByTagName('celldesigner:modification')])  if s.getElementsByTagName('celldesigner:modification') else (),
@@ -224,7 +230,9 @@ def create_model(folder, files = [], grid = (1,1), compartment_specific = False,
                                                         storage = species[1]["storage"], 
                                                         delay = species[1]["delay"], 
                                                         decay = species[1]["decay"], 
-                                                        hypothetical =  species[1]["hypothetical"],
+                                                        lower_limit = species[1]["lower_limit"], 
+                                                        upper_limit = species[1]["upper_limit"],
+                                                        hypothetical = species[1]["hypothetical"],
                                                         origins = [file],
                                                         map_ids = species_alias_data[species[0]]["map_ids"] if species[0] in species_alias_data else set(),
                                                         positions = {file: (species_alias_data[species[0]]["positions"] if species[0] in species_alias_data else set())},

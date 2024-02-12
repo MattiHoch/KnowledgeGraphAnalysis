@@ -39,14 +39,14 @@ class ABM():
         
         lower = 0.4
         upper = 1
-        sigma = 0.2
-        mu = 0.7
+        sigma = 0.1
+        mu = 0.9
         
         np.random.seed(self.seed)
         mus = scipy.stats.truncnorm.rvs((lower-mu)/sigma,(upper-mu)/sigma,loc=mu,scale=sigma,size=quadrant_size**2)
 
-        mu_lim = 0.1
-        sigma = 0.02
+        mu_lim = 0.05
+        sigma = 0.01
 
         quadrant_probabilties = []
         for i in range(quadrant_size):
@@ -74,7 +74,7 @@ class ABM():
 
         self.agents = self.agents.reshape(self.agent_model.grid_size)
             
-        self.blood_node_pairs = {node:self.outside_model.nodes[_hash] for _hash,node in self.agent_model.nodes.items() if node.compartment == "" and _hash in self.outside_model.nodes.keys()}
+        self.blood_node_pairs = {node:self.outside_model.nodes[_hash] for _hash,node in self.agent_model.nodes.items() if _hash in self.outside_model.nodes.keys()}
         self.liver_blood_nodes = [node for node in self.agent_model.nodes if node.compartment == ""]
         
         self.tag = self.agent_model.get_node_from_name("TAG")
@@ -144,10 +144,11 @@ class ABM():
                 outside_node = self.blood_node_pairs[liver_node]
                 if outside_node.boolean_expr != "":
                     intestine_node_activity = outside_node.active()
+                    perturbation = -1 if liver_node.boolean_expr == "" and liver_node.refill == None else 0
                     if liver_node.simple_molecule:
-                        liver_node.perturb(np.where(intestine_node_activity, np.where(nutrient_array, 1, -1), -1))
+                        liver_node.perturb(np.where(intestine_node_activity, np.where(nutrient_array, 1, perturbation), perturbation))
                     else:
-                        liver_node.perturb(np.where(intestine_node_activity, pos_perturbed_array, -1))
+                        liver_node.perturb(np.where(intestine_node_activity, pos_perturbed_array, perturbation))
             elif liver_node.boolean_expr == "":
                 liver_node.perturb(-1)         
 
@@ -202,7 +203,7 @@ class ABM():
         if len(node.refill_sources) > 0:
             for refill_node in self.refill_sources:
                 refill_node_activities, refill_node_perturbations = self.agent_model.restore_matrix_at_node(refill_node)
-                node_activities = np.where((refill_node_activities > 0) | (refill_node_perturbations == 1), 1, node_activities)                
+                node_activities = np.where(((refill_activity > 0) & (refill_perturbation != -1)) | (refill_perturbation == 1), 1, activity)                
         node_activities = np.where(node_perturbations == 1, 1, node_activities)
         
         print(node_activities.max())
@@ -241,7 +242,7 @@ class ABM():
             if len(node.refill_sources) > 0:
                 for refill_node in node.refill_sources:
                     refill_activity, refill_perturbation = self.agent_model.restore_matrix_at_node(refill_node, control = control)
-                    activity = np.where((refill_activity > 0 & refill_perturbation != -1) | (refill_perturbation == 1), 1, activity)   
+                    activity = np.where(((refill_activity > 0) & (refill_perturbation != -1)) | (refill_perturbation == 1), 1, activity)
             activity = np.where(perturbation == -1, 0, activity)
             return activity
         
@@ -296,15 +297,78 @@ class ABM():
         plt.ylabel("Activity Values")        
         if steps == None:
             steps = self.steps
+        
+        non_empty_agents = (self.agents != 0).flatten()
             
         for node in nodes:
             
-            activities, _ = self.agent_model.restore_matrix_at_node(node)
-            
-            x = sum([[step]*(self.size**2) for step in range(steps)], []) 
-            y = sum([list((activities[step]/(node.storage if normalize and node.storage else 1)).flatten()) for step in range(steps)], [])
+            activity, perturbation = self.agent_model.restore_matrix_at_node(node)
+            if node.storage:
+                activity /= node.storage
+            activity = np.where(perturbation == 1, 1, activity)
+            if len(node.refill_sources) > 0:
+                for refill_node in node.refill_sources:
+                    refill_activity, refill_perturbation = self.agent_model.restore_matrix_at_node(refill_node)
+                    activity = np.where(((refill_activity > 0) & (refill_perturbation != -1)) | (refill_perturbation == 1), 1, activity)   
+            activity = np.where(perturbation == -1, 0, activity)
+            if node.storage and not normalize:
+                activity *= node.storage
+                
+            x, y = [], []
+
+            for step in range(steps):
+                # Apply non-zero mask directly when appending to x and y
+                x.extend([step] * np.count_nonzero(non_empty_agents))
+                y.extend(activity[step].flatten()[non_empty_agents])
             
             sns.lineplot(x=x, y=y, errorbar = ("pi", pi), label=node.fullname_printable)
         
         plt.legend(loc= "upper left")
         plt.show()
+        
+
+    def get_pi_activities(self, nodes, window_size = 0, normalize = False, pi = 50, steps = None):
+    
+        if steps == None:
+            steps = self.steps
+        
+        non_empty_agents = (self.agents != 0).flatten()
+        
+        data = {
+            "steps": steps,
+            "activities":{},
+       }
+            
+        for node in nodes:
+            
+            data["activities"][node.hash] = []
+            
+            activity, perturbation = self.agent_model.restore_matrix_at_node(node)
+            if node.storage:
+                activity /= node.storage
+            activity = np.where(perturbation == 1, 1, activity)
+            if len(node.refill_sources) > 0:
+                for refill_node in node.refill_sources:
+                    refill_activity, refill_perturbation = self.agent_model.restore_matrix_at_node(refill_node)
+                    activity = np.where(((refill_activity > 0) & (refill_perturbation != -1)) | (refill_perturbation == 1), 1, activity)   
+            activity = np.where(perturbation == -1, 0, activity)
+            if node.storage and not normalize:
+                activity *= node.storage
+            
+            if not node.storage and window_size > 1:
+                cum_sum = np.cumsum(np.vstack([np.zeros(activity.shape[1]), activity]), axis=0)
+                moving_sums = np.array([cum_sum[min(i + window_size, cum_sum.shape[0] - 1), :] - cum_sum[i, :] 
+                                        for i in range(activity.shape[0])])
+                window_sizes = np.array([window_size if i + window_size <= activity.shape[0] else activity.shape[0] - i for i in range(activity.shape[0])]).reshape(-1, 1)
+                activity = moving_sums / window_sizes
+
+            for step in range(steps):
+                # Apply non-zero mask directly when appending to x and y
+                step_activities = activity[step].flatten()[non_empty_agents]
+                data["activities"][node.hash].append([
+                    np.percentile(step_activities, int(50-pi/2)),
+                    np.median(step_activities),
+                    np.percentile(step_activities, int(50+pi/2))
+                ])
+            
+        return data
