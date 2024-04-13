@@ -1,14 +1,9 @@
 import time
 import re
-from collections import defaultdict, Counter, deque
+from collections import defaultdict, deque
 import numpy as np
-import math
-from sklearn import metrics
-import statistics
 from scipy import stats
 import hashlib
-from functools import lru_cache
-from scipy.sparse import csr_matrix, lil_matrix
 import functools
 import requests
 
@@ -71,9 +66,9 @@ class Node:
                 if not node._lower_limit or (node._lower_limit and lower_limit > node._lower_limit):
                     node._lower_limit = lower_limit
             if delay > node.delay:
-                node.delay = delay
+                node.delay = int(delay)
             if decay != node.decay and decay != 1:
-                node.decay = decay
+                node.decay = int(decay)
             if submap:                
                 node.submap = submap
             for file, pos in positions.items():
@@ -138,6 +133,7 @@ class Node:
         self.refill = None
         self.refill_sources = set()
         self.boolean_targets = []
+        self.default_state = True
         
         self.perturbation = 0
         
@@ -494,7 +490,7 @@ class Node:
                 # converting the string into a lambda function
                 self.rule = eval("lambda: " + numexpr_string, node_mapping)
             else:
-                self.rule = lambda: (self.model.true_template if self.refill == None else self.model.false_template)
+                self.rule = lambda: (self.model.true_template if self.refill == None and self.default_state else self.model.false_template)
                 
             if self.delay or self.storage or self.refill or self.consumption or ("probabilistic=True" in numexpr_string):
                 self.always_update = True

@@ -5,22 +5,22 @@ import itertools
 import csv
 import pandas as pd
 
-try:
-    from app.network_data.edge import *
-    from app.network_data.node import *
-    from app.network_data.model import *
-    from app.network_data.basic_functions import *
-except:
+import_paths = [
+    "app.network_data.",
+    "network_data.",
+    ".",
+    ""
+]
+
+for path in import_paths:
     try:
-        from network_data.edge import *
-        from network_data.node import *
-        from network_data.model import *
-        from network_data.basic_functions import *
-    except:
-        from .edge import *
-        from .node import *
-        from .model import *
-        from .basic_functions import *
+        exec(f"from {path}edge import *")
+        exec(f"from {path}node import *")
+        exec(f"from {path}model import *")
+        exec(f"from {path}basic_functions import *")
+        break
+    except ImportError:
+        continue     
     
 def get_tag(tag_list, na_value = 0, defaultvalue = 10):
     return (float(tag_list[0].split("=")[1].strip()) if "=" in tag_list[0] else defaultvalue) if tag_list else na_value
@@ -306,14 +306,17 @@ def create_model(folder, files = [], grid = (1,1), compartment_specific = False,
                     list(node.subunits), 
                     [node], 
                     edgetype = "COMPLEX_FORMATION",
-                )
-        
+                )        
+    
     model.update_signaling()
-    model.set_initial_state()
+    #model.set_initial_state()
     
     return model
 
-def read_interaction_tables(folder, model, files = [], remove_disconnected = True, **kwargs):
+def read_interaction_tables(folder, model, files = [], remove_disconnected = True, group_delimiter = ',', complex_delimiter = None, **kwargs):
+    
+    if complex_delimeter == group_delimiter:
+        return "ERROR group and complex delimiters cannot be the same."
     
     def get_delimiter(file_path, _bytes = 4096):
         with io.open(file_path, "r") as data:
@@ -354,18 +357,40 @@ def read_interaction_tables(folder, model, files = [], remove_disconnected = Tru
                 node_type = str(row[interaction_partner + "type"]) if column_exists[interaction_partner + "type"] else "PROTEIN"
                 node_states = tuple(row[interaction_partner + "state"].split(",")) if column_exists[interaction_partner + "state"] else ()
                 
-                for node_name in row[interaction_partner].split(','):
+                for node_name in row[interaction_partner].split(group_delimiter):
 
-                    nodes[interaction_partner].add(
-                        Node(
-                            model,
-                            node_name.strip(), 
-                            nodetype = node_type,
-                            states = node_states, 
-                            compartment = compartment, 
-                            origins = [file],
+                    if complex_delimeter and complex_delimeter in node_name:
+                        subunit_nodes = [
+                            Node(
+                                model,
+                                subunit_name.strip(), 
+                                nodetype = node_type, 
+                                compartment = compartment, 
+                                origins = [file],
+                            ) for subunit_name in node_name.split(complex_delimeter)
+                        ]
+                        nodes[interaction_partner].add(
+                            Node(
+                                model,
+                                ":".join([subunit.name for subunit in subunit_nodes]), 
+                                nodetype = node_type,
+                                states = node_states, 
+                                subunits = tuple(subunit_nodes),
+                                compartment = compartment, 
+                                origins = [file],
+                            )
                         )
-                    )
+                    else:
+                        nodes[interaction_partner].add(
+                            Node(
+                                model,
+                                node_name.strip(), 
+                                nodetype = node_type,
+                                states = node_states, 
+                                compartment = compartment, 
+                                origins = [file],
+                            )
+                        )
             interaction_types = {t: "positive" for t in ["interaction", "modification"]}
             for interaction_type in interaction_types:
                 if column_exists[interaction_type]:   

@@ -1,22 +1,28 @@
 import math
 from os import path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy
 import math
-import IPython
 import random
 import time
 from scipy.ndimage import convolve
 import re 
 
-try:
-    from app.network_data.basic_functions import *
-    from app.network_data.read_sbml import *
-except:
-    from network_data.basic_functions import *
-    from network_data.read_sbml import *
+import_paths = [
+    "app.network_data.",
+    "network_data.",
+    ""
+]
+
+for path in import_paths:
+    try:
+        exec(f"from {path}basic_functions import *")
+        exec(f"from {path}read_sbml import *")
+        break
+    except ImportError:
+        continue
     
 class ABM():
     
@@ -37,15 +43,15 @@ class ABM():
             userImage = Image.open(image)
             userImage = userImage.resize(image_size) ### EDITED LINE
         
-        lower = 0.4
+        lower = 0.2
         upper = 1
-        sigma = 0.1
-        mu = 0.9
+        sigma = 0.3
+        mu = 0.6
         
         np.random.seed(self.seed)
         mus = scipy.stats.truncnorm.rvs((lower-mu)/sigma,(upper-mu)/sigma,loc=mu,scale=sigma,size=quadrant_size**2)
 
-        mu_lim = 0.05
+        mu_lim = 0.01
         sigma = 0.01
 
         quadrant_probabilties = []

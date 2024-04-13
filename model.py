@@ -1,4 +1,4 @@
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import requests
 import io
 import numpy as np
@@ -6,43 +6,39 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cm
 import seaborn as sns
-from itertools import combinations
 import ipywidgets as wg
-from IPython.display import SVG, display
-import copy
-import gc
 from collections import defaultdict
-
 import scipy
-from scipy import stats
 from scipy.optimize import curve_fit
 from scipy.stats import t, linregress, norm
-from scipy.sparse import coo_matrix, csr_matrix, lil_matrix, vstack
-
+from scipy.sparse import coo_matrix, vstack
 from collections import defaultdict, deque
 import networkx as nx
 import numbers
 import json
 import time
-from sklearn import metrics
-import joblib
-from numba import jit
 import math
 import pandas as pd
 import random
 from statsmodels.stats.multitest import multipletests
-import threading
 
 
 
-try:
-    from app.network_data.basic_functions import *
-    from app.network_data.edge import *
-    from app.network_data.node import *
-except:
-    from network_data.basic_functions import *
-    from network_data.edge import *
-    from network_data.node import *
+import_paths = [
+    "app.network_data.",
+    "network_data.",
+    ""
+]
+
+for path in import_paths:
+    try:
+        exec(f"from {path}basic_functions import *")
+        exec(f"from {path}edge import *")
+        exec(f"from {path}node import *")
+        break
+    except ImportError:
+        continue
+        
     
 class ModelDict(dict):
     def __init__(self, model, **kwargs):
@@ -111,6 +107,10 @@ class Model:
     def compartments(self):
         return list(set([node.compartment for node in self.nodes]))
     
+    @property
+    def origins(self):
+        return set(sum([list(node.origins) for node in self.nodes],[]))
+    
     def update_signaling(self):
         for node in self.nodes:
             node.boolean_targets = []
@@ -139,12 +139,12 @@ class Model:
                 "fullname": node.fullname_printable,
                 "minerva_name": node.minerva_name.lower(),
                 "name": node.name,
-                "type": node.type_class,
+                "type": "HYPOTH_PHENOTYPE" if node.type_class == "PHENOTYPE" and node.hypothetical else node.type_class,
                 "subtype": node.type,
                 "submap": node.submap,
                 "hash": node.hash_string,
                 "ids": {
-                    "name": node.name
+                    "name": node.name.lower()
                 }, 
                 "family": [parent.string_index for parent in self.nodes if parent.family and node in parent.subunits],
                 "parent": [parent.string_index for parent in self.nodes if not parent.family and node in parent.subunits],
@@ -167,6 +167,19 @@ class Model:
         json_object = json.dumps(interaction_json)
         with open(path + "Interactions.json", "w") as outfile:
             outfile.write(json_object)
+            
+            
+        print("Write Phenotype Paths")
+        phenotype_json = self.get_influence_scores()
+        phenotype_json = {
+            "values": {phenotype.string_index: {node.string_index:value for node,value in node_scores.items() if value} for phenotype, node_scores in phenotype_json["values"].items()},
+            "paths": {phenotype.string_index: ["_".join([node.string_index for node in path]) for path in paths] for phenotype, paths in phenotype_json["paths"].items()},
+            "SPs": {phenotype.string_index: {node.string_index:value for node,value in node_scores.items() if value} for phenotype, node_scores in phenotype_json["SPs"].items()}
+        }
+        json_object = json.dumps(phenotype_json)
+        with open(path + "PhenotypePaths.json", "w") as outfile:
+            outfile.write(json_object)
+            
   
     def perturb_edges(self, origin_filter = []):
         for edge in self.edges:
@@ -246,46 +259,47 @@ class Model:
                 
         self.adjust_indices()
                 
-#     def get_interaction_of_nodes(self, node1, node2, integrate_enzymes = True, enzyme_feedback = True, origin_filter = []):
+    def get_interaction_of_nodes(self, node1, node2, integrate_enzymes = True, enzyme_feedback = True, origin_filter = []):
         
-#         interaction_integers = []
+        interaction_integers = []
         
-#         for edge in node1.outgoing:
-#             if not origin_filter or any([origin in origin_filter for origin in edge.origins]):
-#                 catalyses = edge.is_catalyzed
+        for edge in node1.outgoing:
+            if not origin_filter or any([origin in origin_filter for origin in edge.origins]):
+                catalyses = edge.is_catalyzed
 
-#                 # add the source->target interaction only if there is no enzyme or enzyme is not integrated and node2 is a target of node1
-#                 if (not integrate_enzymes or not catalyses) and node2 in edge.targets:
-#                     interaction_integers.append(edge.edge_type_int)
+                # add the source->target interaction only if there is no enzyme or enzyme is not integrated and node2 is a target of node1
+                if (not integrate_enzymes or not catalyses) and node2 in edge.targets:
+                    interaction_integers.append(edge.edge_type_int)
 
-#                 # add the source->enzyme interaction if enzymes should be integrated and node2 is an enzyme with node1 as a substrate
-#                 if integrate_enzymes and any([node2 in catalysis.modifiers for catalysis in edge.is_catalyzed if not origin_filter or any([origin in origin_filter for origin in catalysis.origins])]):
-#                     interaction_integers.append(1)            
+                # add the source->enzyme interaction if enzymes should be integrated and node2 is an enzyme with node1 as a substrate
+                if integrate_enzymes and any([node2 in catalysis.modifiers for catalysis in edge.is_catalyzed if not origin_filter or any([origin in origin_filter for origin in catalysis.origins])]):
+                    interaction_integers.append(1)            
             
-#         # add the negative enzyme->source feedback for catalyses if enzyme_feedback is true and node1 is an enzyme with node2 as substrate
-#         if enzyme_feedback:
-#             interaction_integers += [-1 for edge in node2.outgoing if any([node1 in catalysis.modifiers for catalysis in edge.is_catalyzed if not origin_filter or any([origin in origin_filter for origin in catalysis.origins])])]
+        # add the negative enzyme->source feedback for catalyses if enzyme_feedback is true and node1 is an enzyme with node2 as substrate
+        if enzyme_feedback:
+            interaction_integers += [-1 for edge in node2.outgoing if any([node1 in catalysis.modifiers for catalysis in edge.is_catalyzed if not origin_filter or any([origin in origin_filter for origin in catalysis.origins])])]
             
-#         # add the modifier->target interaction if node1 is modifier of node2
-#         for edge in node2.incoming:
-#             if not origin_filter or any([origin in origin_filter for origin in edge.origins]):
-#                 for modification in edge.modifications:
-#                     if node1 in modification.modifiers:
-#                         if modification.is_catalysis:
-#                             return 1
-#                         else:
-#                             interaction_integers.append(modification.modification_on_target_int)
+        # add the modifier->target interaction if node1 is modifier of node2
+        for edge in node2.incoming:
+            if not origin_filter or any([origin in origin_filter for origin in edge.origins]):
+                for modification in edge.modifications:
+                    if node1 in modification.modifiers:
+                        if modification.is_catalysis:
+                            return 1
+                        else:
+                            interaction_integers.append(modification.modification_on_target_int)
         
-#         return np.sign(sum(interaction_integers, 0))
+        return np.sign(sum(interaction_integers, 0))
                 
-#     def as_matrix(self, integrate_enzymes = True, enzyme_feedback = True, origin_filter = [], reverse = False):
-#         indices = list(enumerate(list(self.nodes)))
-#         matrix = np.zeros(shape=(len(indices), len(indices)))
+    def as_matrix(self, integrate_enzymes = True, enzyme_feedback = True, origin_filter = [], reverse = False, absolute = False):
+        indices = list(enumerate(list(self.nodes)))
+        matrix = np.zeros(shape=(len(indices), len(indices)))
         
-#         for i, source in indices:
-#             for j, target in indices:
-#                 matrix[j if reverse else i][i if reverse else j] = self.get_interaction_of_nodes(source, target, integrate_enzymes = integrate_enzymes, enzyme_feedback = enzyme_feedback, origin_filter = origin_filter)
-#         return matrix
+        for i, source in indices:
+            for j, target in indices:
+                _type = self.get_interaction_of_nodes(source, target, integrate_enzymes = integrate_enzymes, enzyme_feedback = enzyme_feedback, origin_filter = origin_filter)
+                matrix[j if reverse else i][i if reverse else j] = abs(_type) if absolute else _type
+        return matrix
     
 #     def as_adj_list(self, matrix = None, integrate_enzymes = True, enzyme_feedback = True, origin_filter = [], reverse = False):
 #         if not matrix:
@@ -297,7 +311,7 @@ class Model:
 #         return adj_list
 
     def shortest_paths(self, origin_filter = []):        
-        return scipy.sparse.csgraph.shortest_path(self.as_matrix(origin_filter = origin_filter), method='auto', directed=True, return_predecessors=False, unweighted=True, overwrite=False, indices=None)
+        return scipy.sparse.csgraph.shortest_path(self.as_matrix(origin_filter = origin_filter, absolute = True), method='auto', directed=True, return_predecessors=False, unweighted=True, overwrite=False, indices=None)
     
     def as_networkx(self, origin_filter = []):
         return nx.from_numpy_array(self.as_matrix(origin_filter = origin_filter))
@@ -374,6 +388,7 @@ class Model:
         }
 
         start_time = time.time()
+        
         for origins, related_phenotypes in same_origin_phenotypes.items():
             self.propangate_signal(n_steps=20, alpha=0.5, reverse=True,
                                    conditions=[{phenotype: 1} for phenotype in related_phenotypes],
@@ -631,16 +646,26 @@ class Model:
         results = {"nodes": perturbed_nodes, "perturbation": perturbation, "x values": [i for i in range(0,101,int(100/steps))], "correlations": {node:{"values":[]} for node in self.nodes}}
 
         print_progress_bar(0,1)
+
+
         for x_value in results["x values"]:
             perturbations = {}
             for perturbed_node in perturbed_nodes:
                 perturbations[perturbed_node] = perturbation * x_value
-            for node, activity in self.run_boolean_simulation(steps = simulation_steps, conditions = conditions, perturbations = perturbations, pos = pos).items():
-                results["correlations"][node]["values"].append(activity)
-        
-            print_progress_bar(x_value,100)
+                
+            self.run_boolean_simulation(steps = simulation_steps, conditions = conditions, perturbations = perturbations, pos = pos)           
+
+            node_activities = np.mean(self.restore_matrix_at_pos(pos)[0], axis=0)
+
+            for node in self.nodes.values():
+                
+                node_activity = node_activities[node.index] / (node.storage if node.storage else 1)        
+                results["correlations"][node]["values"].append(node_activity)        
             
+            print_progress_bar(x_value,100) 
+
         for node, correlation in results["correlations"].items():
+                    
             if len(results["x values"]) < 2:
                 corr = (0,1)
             else:
@@ -1101,7 +1126,7 @@ class Model:
         return results
 
     #Data Mapping
-    def map_dataframe(self, df, filter_null = True, node_filter = lambda node: node.type == "rna"):
+    def map_dataframe(self, df, filter_null = True, node_filter = lambda node: True):
         node_mapping = {node.name.lower():node for node in self.nodes if node_filter(node)}
         df = df.rename(index={index:node_mapping.get(str(index).lower()) for index in df.index},inplace=False).fillna(value = {col: 1 if col.endswith("_pvalue") else 0 for col in df.columns})#.dropna()
         return df[~df.index.isnull()] if filter_null else df
@@ -1134,3 +1159,186 @@ class Model:
         intervals = t_dict[chrom][pos]
         # Extract original range and position from each interval
         return [interval.data[2] for interval in intervals]
+    
+    def data_enrichment(self, data, has_pvalues = True, permutations = 1000, seed = 42, enriched_nodes = None, node_filter = lambda node: node.type == "rna" or node.type == "protein"):
+        if enriched_nodes == None:
+            enriched_nodes = self.phenotypes
+
+        node_weights = self.get_influence_scores(phenotypes = enriched_nodes, submap_specific = True)["values"]
+                    
+        data = self.map_dataframe(data, node_filter = node_filter)
+        columns = data.columns
+    
+        def calculate_score(k, _x, _y, slope = True):
+            if slope:
+                return np.sum(np.abs(_y * _x) * _y * _x) / (k + np.sum(_y**2 * _x**2))
+            else:
+                return np.sum(_y * _x)
+
+
+        print_progress_bar(0,1)
+
+        results = pd.DataFrame(index=enriched_nodes)
+        n_columns = (len(columns) - 1) / (2 if has_pvalues else 1)
+
+        for j,i in enumerate(range(0, len(columns) - 1, 2 if has_pvalues else 1)):  # iterate over columns in steps of 2
+            
+            if has_pvalues:
+                data.loc[data[columns[i + 1]] > 0.05, columns[i]] = 0
+
+            fc_values = {k:v for k,v in data[columns[i]].to_dict().items() if v != 0}
+            fc_values = np.array([fc_values[node] if node in fc_values else 0 for node in self.nodes if node_filter(node)])
+            
+            all_shuffled = np.tile(fc_values, (permutations, 1))  
+            np.random.seed(42)
+            for row in all_shuffled:
+                np.random.shuffle(row)          
+            
+            node_pvalues = []
+            valid_indices = set()
+            levels = []
+            for n,node in enumerate(enriched_nodes):
+                            
+                weights = node_weights[node]
+                weights = np.array([weights[node] if node in weights else 0 for node in self.nodes if node_filter(node)])
+
+                pvalues = []
+                for es_type in [True, False]:
+                    score = calculate_score(2, fc_values, weights, slope = es_type)
+                    
+                    shuffled_scores = [calculate_score(2, all_shuffled[i], weights, slope = es_type) for i in range(permutations)]
+                    shuffled_scores = [x for x in shuffled_scores if np.sign(score) == np.sign(x)]
+                    shuffled_scores += [-x for x in shuffled_scores]
+
+                    mean_score = np.mean(shuffled_scores)
+                    std_dev_score = np.std(shuffled_scores)
+            
+                    if std_dev_score != 0:
+                        z_score = (score - mean_score) / std_dev_score
+                        pvalue = norm.sf(abs(z_score)) * 2
+                    else:
+                        if score:
+                            pvalue = 1e-42
+                            
+                    if np.isnan(pvalue):
+                        pvalue = 1  # Set NaN p-values to 1 immediately if you don't want them in correction
+                    else:
+                        valid_indices.add(n)    
+    
+                    pvalues.append(pvalue)
+                    
+                    if es_type == False:
+                        levels.append(score)
+                    
+                node_pvalues.append(min(pvalues))
+                print_progress_bar(j * len(enriched_nodes) + n, n_columns * len(enriched_nodes))
+
+            valid_indices = sorted(list(valid_indices))
+            valid_pvalues = [node_pvalues[k] for k in valid_indices]
+            _, corrected_pvalues, _, _ = multipletests(valid_pvalues, alpha=0.05, method='fdr_bh')
+
+            for index, valid_index in enumerate(valid_indices):
+                node_pvalues[valid_index] = corrected_pvalues[index]
+                
+            results[columns[i]] = levels
+            results[columns[i] + "_pvalue"] = node_pvalues
+            
+        step = 2 if has_pvalues else 1
+        columns_to_normalize = results.columns[0::step]
+        
+        # Compute the maximum for each row considering the selected columns
+        max_per_row = results[columns_to_normalize].abs().max(axis=1)
+        
+        # Normalize each row by the maximum value in the selected columns for each row
+        for column in columns_to_normalize:
+            results[column] = np.where(max_per_row > 0, results[column] / max_per_row, results[column])
+
+                
+        return results
+    
+    
+    def circle_plot(self, data, save_file_name = "", fontsize = 18.0, significant = False, unique = False, filter_samples = lambda x: True):
+    
+        # plt.close()
+        data = data.copy()
+        plt.rcParams['font.size'] = fontsize
+
+        data.index = data.index.map(lambda node: node.name)
+   
+        pnames = data.index
+
+        fig, ax = plt.subplots(figsize=(24,12))
+        size = 0.2
+        innersize = 0.4
+        startangle=130
+
+
+        def rgb2hex(r,g,b):
+            return "#{:02x}{:02x}{:02x}".format(r,g,b)
+        def getcolorfromvalue(v):
+            if v < 0:
+                v = 1 - abs(v)
+                return rgb2hex(int(255*v),int(255*v),int(255))
+            else:
+                v = 1 - v    
+                return rgb2hex(255,int(255*v),int(255*v))
+        ax.pie([len(pnames)], radius=(innersize), colors = ["#fafafa"])
+        samples = [x for x in data.columns if x.endswith("_pvalue") == False]
+        if filter_samples:
+            samples = [sample for sample in samples if filter_samples(sample)]
+        print(samples)
+
+        for i,header in enumerate(samples):
+            colors = [data.loc[p, header] if float(data.loc[p, header + "_pvalue"]) <= (0.05 if significant else 1) else 0 for p in pnames]
+            colors = [getcolorfromvalue(x) for x in colors]
+            wedges, _  = ax.pie([1 for x in colors], radius=(innersize + size*(i+1)),
+                labels=["" for x in colors],
+                startangle= startangle,
+                colors = colors,  
+                counterclock=False,          
+                wedgeprops=dict(width=size, edgecolor='w'))
+
+
+        for i, header in enumerate(samples):
+            segments = [1] * len(pnames)  # Each segment is represented as '1'
+            for j, p in enumerate(pnames):
+                pvalue = float(data.loc[p, header + '_pvalue'])
+                if pvalue <= 0.05:  # Check significance
+                    # Midpoint angle in degrees
+                    mid_angle_deg = (wedges[j].theta1 + wedges[j].theta2 + 5) / 2
+                    mid_angle_rad = np.deg2rad(mid_angle_deg)  # Convert to radians
+                    # Outer radius for this layer
+                    outer_radius = innersize + size * (i + 1)
+                    # Fixed distance from the edge of the pie slice
+                    text_offset = 0.1  # Adjust this as needed
+                    # Calculate text position
+                    x = (outer_radius - text_offset) * np.cos(mid_angle_rad)
+                    y = (outer_radius - text_offset) * np.sin(mid_angle_rad)
+                    # Place '*' on the chart
+                    ax.text(x, y, '*', ha='center', va='center', fontsize=18, color='white' if data.loc[p, header] < -0.5 else 'black', weight='bold')
+
+        cumulative_angles = np.linspace(startangle, startangle + 360, len(pnames) + 1)[:-1]  # Create angles for each label
+        label_radius = innersize - 0.1  # Set radius for labels inside the innermost pie
+
+        for i, label in enumerate(pnames[::-1]):
+                # Convert polar to cartesian coordinates
+            angle_rad = np.deg2rad(cumulative_angles[i]+4.5)  # Convert angle to radians
+            x = label_radius * np.cos(angle_rad)  # X coordinate
+            y = label_radius * np.sin(angle_rad)  # Y coordinate
+
+            # Add text annotation
+            t = ax.text(x, y, 
+                    label.replace("Synthesis", "Synth.").replace("Response", "Resp.").replace("Migration", "Migr."),
+                    ha='left', 
+                    va='center', 
+                    fontsize=19, 
+                    rotation=np.rad2deg(angle_rad),
+                    rotation_mode='anchor')
+            t.set_bbox(dict(facecolor='#FFFFFF', alpha=0.5, edgecolor="#FFFFFF00"))
+
+
+
+        if save_file_name:
+            plt.savefig(save_file_name + ("_sign" if significant else "")  + ("_unique" if unique else "") + ".png", dpi=300, bbox_inches='tight')
+
+        plt.show()
