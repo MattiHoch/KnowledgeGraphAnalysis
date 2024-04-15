@@ -21,7 +21,7 @@ import math
 import pandas as pd
 import random
 from statsmodels.stats.multitest import multipletests
-
+from d3blocks import D3Blocks
 
 
 import_paths = [
@@ -432,6 +432,50 @@ class Model:
                 
         return adjacency_list 
 
+    def chord_plot(self, highlighted = [] ):
+        interactions = {}
+        for node in [node for node in self.nodes if node.compartment == ""]:
+            for edge in node.incoming:
+                for source in edge.sources: 
+                    for source_compartment in [c.replace(" nucleus", "") for c in source.compartment.split(" / ")]:
+                        if source_compartment == "":
+                            continue
+                        if source_compartment not in interactions:
+                            interactions[source_compartment] = {}
+                        for edge in node.outgoing:
+                            for target in edge.targets: 
+                                for target_compartment in [c.replace(" nucleus", "") for c in target.compartment.split(" / ")]:
+                                    if target_compartment == "" or target_compartment == source_compartment:
+                                        continue
+                                    if target_compartment not in interactions[source_compartment]:
+                                        interactions[source_compartment][target_compartment] = set()
+                                    interactions[source_compartment][target_compartment].add(node)
+
+        columns = ['source', 'target', 'weight']
+        df = pd.DataFrame(columns=columns)
+
+        # excluded because unspecific cells
+        excluded = ["cell", "immune cell"]
+        # Adding each row to the DataFrame
+        for source,targets in interactions.items():
+            for target, nodes in targets.items():
+                if source in excluded or target in excluded:
+                    continue
+                row_df = pd.DataFrame([{'source': source.removesuffix("s"), 'target': target.removesuffix("s"), 'weight': len(nodes)}])  # Convert the single row to a DataFrame
+                df = pd.concat([df, row_df], ignore_index=True)
+                
+        d3 = D3Blocks(chart='Chord', frame=False, )
+        d3.set_node_properties(df, opacity=0.4, cmap='tab20')
+        d3.set_edge_properties(df, color='source', opacity='source')
+
+        for comp in highlighted:
+            try:
+                d3.node_properties.get(comp)['color']='#ff0000'
+                d3.node_properties.get(comp)['opacity']=1
+            except:
+                pass
+
+        d3.show(save_button=True, fontsize=12)
 #Boolean
     
     def set_initial_state(self, grid = None):
@@ -1257,7 +1301,7 @@ class Model:
         return results
     
     
-    def circle_plot(self, data, save_file_name = "", fontsize = 18.0, significant = False, unique = False, filter_samples = lambda x: True):
+    def circle_plot(self, data, save_file_name = "", figsize=(24,12), fontsize = 18.0, significant = False, unique = False, filter_samples = lambda x: True):
     
         # plt.close()
         data = data.copy()
@@ -1267,7 +1311,7 @@ class Model:
    
         pnames = data.index
 
-        fig, ax = plt.subplots(figsize=(24,12))
+        fig, ax = plt.subplots(figsize=figsize)
         size = 0.2
         innersize = 0.4
         startangle=130
