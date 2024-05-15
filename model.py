@@ -464,7 +464,8 @@ class Model:
                 row_df = pd.DataFrame([{'source': source.removesuffix("s"), 'target': target.removesuffix("s"), 'weight': len(nodes)}])  # Convert the single row to a DataFrame
                 df = pd.concat([df, row_df], ignore_index=True)
                 
-        d3 = D3Blocks(chart='Chord', frame=False, )
+        d3 = D3Blocks()#chart='Chord', frame=False)
+        d3.chord(df, ordering='ascending', arrowhead=50)
         d3.set_node_properties(df, opacity=0.4, cmap='tab20')
         d3.set_edge_properties(df, color='source', opacity='source')
 
